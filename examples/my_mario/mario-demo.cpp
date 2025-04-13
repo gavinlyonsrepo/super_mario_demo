@@ -183,7 +183,7 @@ void SetupHW(void)
 {   
 	stdio_init_all(); // Initialize chosen serial port
 	sleep_ms(500);
-	printf("Start1151\r\n");
+	printf("Game Start\r\n");
 	gpio_init(BTN_JUMP);
 	gpio_set_dir(BTN_JUMP, GPIO_IN);
 	gpio_init(BTN_RIGHT);
@@ -230,7 +230,7 @@ void SetupHW(void)
 	myTFT.TFTInitScreenSize(OFFSET_COL, OFFSET_ROW, TFT_WIDTH, TFT_HEIGHT);
 	// ******************************************
 	// ******** USER OPTION 3 PCB_TYPE  **************************
-	myTFT.TFTInitPCBType(myTFT.TFT_ST7735S_Black); // pass enum,4 choices,see REA
+	myTFT.TFTInitPCBType(myTFT.TFT_ST7735S_Black); // pass enum,4 choices
 	//**********************************************************
 	myTFT.setBuffer();
 	myTFT.setTextCharPixelOrBuffer(true);
@@ -247,6 +247,21 @@ void DisplayTitle()
 	myTFT.writeCharString(17, 70, teststr1);
 	myTFT.writeCharString(17, 80, teststr2);
 	myTFT.writeCharString(17, 90, teststr3);
+	myTFT.writeBuffer();
+	MILLISEC_DELAY(3000);
+	myTFT.fillScreen(LBLUE);
+	myTFT.clearBuffer();
+}
+
+
+void DisplayGameOver()
+{
+	MILLISEC_DELAY(500);
+	myTFT.setTextColor(myTFT.C_WHITE, LBLUE);
+	char teststr1[] = "GAME OVER";
+	myTFT.setRotation(myTFT.Degrees_270);
+	myTFT.drawBitmap16Data(0, 0, pSuperMarioWorldTitle, 160, 128);
+	myTFT.writeCharString(30, 70, teststr1);
 	myTFT.writeBuffer();
 	MILLISEC_DELAY(3000);
 	myTFT.fillScreen(LBLUE);
@@ -292,64 +307,65 @@ void main2() {
 	}
 }
 
-void GameLoop(void)
+void GameLoop(int timeLimit)
 {
+	// Game variables
 	std::span<const uint8_t> Mario;
 	int pos[2] = {32, 81}; // xy
-	int vel[2] = {0, 0};
-	int acc[2] = {0, 10};
-	int y = 81;
+	//int vel[2] = {0, 0}; // unused now
+	//int acc[2] = {0, 10};  // unused now
+	//int y = 81;  // unused now
 	int x = 32;
 	int xd1 = x;
 	int xd2 = 0;
 	int spr = 1;
-	int t = 0; // Time
-	int f = 0; // Jump flag
-	int j = 0; // Jump counter
+	int time = 0;
+	int jumpFlag = 0; // Jump flag
+	int jumpCounter = 0; // Jump counter
 	char timer[20], position[30];
 	char name [] = "MARIO";
 	char world[] = "WORLD";
-	char time[] = "TIME";
+	char timeText[] = "TIME";
 	// Start second core
 	multicore_launch_core1(main2);
 	myTFT.fillRect(0,0, 128, 160, LBLUE+1);
 
-	while (1) 
+	while (time < timeLimit)
 	{
-		++t;
-		sprintf(timer, "%d", t);
+		++time;
+		sprintf(timer, "%d", time);
 		sprintf(position, "X:%d,Y:%d", pos[0], pos[1]);
 		// Handle right movement
 		if (gpio_get(BTN_RIGHT)) {
 			pos[0] += 3;
-			spr = (f == 0) ? ((t % 2) ? 3 : 1) : spr;
+			spr = (jumpFlag == 0) ? ((time % 2) ? 3 : 1) : spr;
 		}
 		// Handle left movement
 		else if (gpio_get(BTN_LEFT)) {
 			pos[0] -= 3;
-			spr = (f == 0) ? ((t % 2) ? 4 : 2) : spr;
+			spr = (jumpFlag == 0) ? ((time % 2) ? 4 : 2) : spr;
 		}
 		// Idle state
-		else if (f == 0) {
+		else if (jumpFlag == 0) {
 			if (spr == 4 || spr == 6) spr = 2;
 			else if (spr == 3 || spr == 5) spr = 1;
 		}
 		// Handle jumping
-		if (gpio_get(BTN_JUMP) && f == 0) {
-			f = 1;
+		if (gpio_get(BTN_JUMP) && jumpFlag == 0) {
+			jumpFlag = 1;
 		}
 		// Jumping physics
-		if (f == 1 || f == 2) {
+		if (jumpFlag == 1 || jumpFlag == 2) {
 			spr = (spr == 2 || spr == 4 || gpio_get(BTN_LEFT)) ? 6 : 5;
 		}
-		if (f == 1) {
-			++j;
+		if (jumpFlag == 1) {
+			++jumpCounter;
 			pos[1] -= 5;
-			if (j == 7) f = 2;
-		} else if (f == 2) {
-			--j;
+			if (jumpCounter == 7) jumpFlag = 2;
+		} else if (jumpFlag == 2) {
+			--jumpCounter;
 			pos[1] += 5;
-			if (j == 0) f = 0;
+			if (jumpCounter == 0) jumpFlag = 0;
 		}
 		// Sprite selection
 		switch (spr) {
@@ -360,10 +376,9 @@ void GameLoop(void)
 			case 5: Mario = pMarioJumpS1; break;
 			case 6: Mario = pMarioJumpS2; break;
 		}
-		// **SMOOTH SCROLLING FIX**  
 		if (pos[0] > 96) {
 			xd1 = 96;
-			xd2 = -pos[0] + 96; // Try adding +1 or -1 and test
+			xd2 = -pos[0] + 96;
 		} else if (pos[0] < 17) {
 			pos[0] = 18;
 			xd2 = 0;
@@ -371,7 +386,6 @@ void GameLoop(void)
 			xd1 = pos[0];
 			xd2 = 0;
 		}
-		// **TILE RENDERING FIX**
 		for (int j = 0; j < MAPH; j++) {
 			for (int k = 0; k < MAPW; k++) {
 				int jm = j * 16 + 24;
@@ -402,12 +416,15 @@ void GameLoop(void)
 		myTFT.writeCharString(5, 0, name);
 		myTFT.writeCharString(5, 8, position);
 		myTFT.writeCharString(74, 0, world);
-		myTFT.writeCharString(122, 0, time);
+		myTFT.writeCharString(122, 0, timeText);
 		myTFT.writeCharString(122, 8, timer);
 		myTFT.writeBuffer();
 		myTFT.clearBuffer(LBLUE+1);
 		MILLISEC_DELAY(0);
-		if (t > 2000) return;
+		if (pos[0] > 650) {
+			// Game over condition
+			break;
+		}
 	}
 }
 
@@ -418,6 +435,7 @@ void EndGame(void)
 	gpio_deinit(BTN_LEFT);
 	gpio_deinit(BTN_4);
 	gpio_deinit(BUZZ);
+	DisplayGameOver();
 	myTFT.destroyBuffer();
 	myTFT.TFTPowerDown(); 
 	printf("Game Over");
@@ -427,7 +445,7 @@ int main()
 {
 	SetupHW();
 	DisplayTitle();
-	GameLoop();
+	GameLoop(2000);
 	EndGame();
 	return 0;	
 }
